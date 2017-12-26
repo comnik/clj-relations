@@ -102,5 +102,51 @@
       (join data-1)))
 
 
-;; solving problems relationally
+(defn relate [& pairs]
+  (assert (even? (count pairs)) "relate requires an even number of arguments")
+  (->> pairs
+       (partition 2)
+       (map (fn [[k vs]] (map #(hash-map k %) vs)))
+       (apply map merge)))
+
+(comment
+  (relate :k [:a :b "c"])
+  (relate :idx (range 10) :y (repeatedly 10 rand)))
+
+
+;; decouple computation from tuple structure
+(let [data (relate :t (range 100) :n (repeatedly 100 #(rand-int 1000)) :y (repeatedly 100 #(rand-int 100)))]
+  (let [total (apply + (map :n data))]
+    (assert
+     (= (into #{} (map #(assoc % :weight (/ (:n %) total)) data))
+        (derive data :weight #(/ (:n %) total))
+        (derive2 data :weight / :n (constantly total))))))
+
+;; a cleaner zipmap
+(let [urls ["test.wav" "bla.mp3" "skrra.wav" "weeee.ogg"]
+      ids  (range)]
+  ;; traditional
+  (map vector ids urls)
+  ;; relational
+  (relate :id ids :url urls))
+
+;; maintain provenance
+(let [get-url   (fn [playable] (str "/storage/" (:name playable) ".mp3"))
+      get-path  (fn [name] (str "/storage/" name ".mp3"))
+      playables (relate :name ["name-a" "name-b" "name-c"])]
+
+  ;; usual approach, relying on implicit order
+  (let [urls (map get-url playables)]
+    (for [[playable url] (map vector playables urls)]
+      [playable url]))
+
+  ;; usual approach, with non-tuple-aware function
+  (let [urls (map (comp get-url :name) playables)]) ;...
+
+  ;; traditional approach w/o destroying information
+  (map #(assoc % :url (get-url %)) playables)
+  
+  ;; relational approach, w and w/o tuple-aware function
+  (derive playables :url get-url)
+  (derive2 playables :url get-path :name))
 
