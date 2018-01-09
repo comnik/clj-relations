@@ -13,7 +13,9 @@
 
 (ns relational-exploration.core
   (:use [clojure.set])
-  (:require [clojure.pprint :as pprint]))
+  (:require
+   [clojure.pprint :as pprint]
+   [clojure.spec.alpha :as s]))
 
 
 (def data
@@ -33,34 +35,42 @@
 
 
 
-;; we introduce the concept of a predicate-map (predmap)
-;; a simple example: {:x 10 :y #(< % 100)}
-;; this predicate map matches all tuples where (= x 10) and (< y 100)
+;; we introduce the spec-map, a way to quickly combine specs
+;; into a tuple filter. a simple example: {:x #(= % 10) :y #(< % 100)}
+;; this spec-map matches all tuples where (= x 10) and (< y 100)
 
-;; @TODO replace with specs
-(defn matches-predmap? [predmap tuple]
+;; (defn matches-predmap? [predmap tuple]
+;;   (reduce-kv
+;;    (fn [_ k v]
+;;      (let [v'       (get tuple k)
+;;            matches? (if (fn? v) (apply v [v']) (= v v'))]
+;;        (if matches? true (reduced false))))
+;;    true
+;;    predmap))
+
+(defn matches-specmap? [specmap m]
   (reduce-kv
-   (fn [_ k v]
-     (let [v'       (get tuple k)
-           matches? (if (fn? v) (apply v [v']) (= v v'))]
-       (if matches? true (reduced false))))
+   (fn [_ k spec]
+     (if (s/valid? spec (get m k))
+       true
+       (reduced false)))
    true
-   predmap))
+   specmap))
 
 (defn where
-  "Returns a set of the elements matching the given predicate map."
-  ([predmap]
-   (filter (partial matches-predmap? predmap)))
-  ([predmap xset]
-   (filter (partial matches-predmap? predmap) xset)))
+  "Returns a set of the elements conforming to the given spec-map."
+  ([specmap]
+   (filter (partial matches-specmap? specmap)))
+  ([specmap xset]
+   (filter (partial matches-specmap? specmap) xset)))
 
 ;; e.g.
-;; (where {:config :a} data-1)
+;; (where {:config #(= % :a)} data-1)
 ;; (where {:run #(< % 1)} data-1)
-;; (where {:config :a :run #(< % 1)} data-1)
+;; (where {:config #(= % :a) :run #(< % 1)} data-1)
 ;; (into #{}
 ;;       (comp
-;;        (where {:config :b})
+;;        (where {:config #(= % :b)})
 ;;        (where {:run #(< % 1)}))
 ;;       data-1)
 
@@ -83,7 +93,7 @@
 ;; (derive :foo update data-1 :run inc)
 ;; (into #{}
 ;;       (comp
-;;        (where {:config :a})
+;;        (where {:config #(= % :a)})
 ;;        (derive :hash hash))
 ;;       data-1)
 
@@ -102,7 +112,7 @@
 ;; (derive-k :combined-name str [:config :run] data-1)
 ;; (derive-k :tp2 #(* % %) [:tp] data-1)
 ;; (into #{}
-;;       (comp
+;;  p     (comp
 ;;        (where {:config :a})
 ;;        (derive :hash hash)
 ;;        (derive-k :tp2 #(* % %) [:tp]))
