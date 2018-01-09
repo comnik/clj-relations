@@ -68,6 +68,8 @@
 ;; (where {:config #(= % :a)} data-1)
 ;; (where {:run #(< % 1)} data-1)
 ;; (where {:config #(= % :a) :run #(< % 1)} data-1)
+;; (where {:config #{:a :b}} data-1)
+;; (where {:run (s/and even? #(> % 0))} data-1)
 ;; (into #{}
 ;;       (comp
 ;;        (where {:config #(= % :b)})
