@@ -27,15 +27,17 @@
 (def data-1
   (rename data {:throughput :tp}))
 
-(select #(= (:config %) :a) data-1)
+;; e.g.
+;; (select #(= (:config %) :a) data-1)
+;; (select #(< (:run %) 1) data-1)
 
-(select #(< (:run %) 1) data-1)
 
 
 ;; we introduce the concept of a predicate-map (predmap)
 ;; a simple example: {:x 10 :y #(< % 100)}
 ;; this predicate map matches all tuples where (= x 10) and (< y 100)
 
+;; @TODO replace with specs
 (defn matches-predmap? [predmap tuple]
   (reduce-kv
    (fn [_ k v]
@@ -45,62 +47,72 @@
    true
    predmap))
 
-
 (defn where
   "Returns a set of the elements matching the given predicate map."
-  [predmap xset]
-  (select #(matches-predmap? predmap %) xset))
+  ([predmap]
+   (filter (partial matches-predmap? predmap)))
+  ([predmap xset]
+   (filter (partial matches-predmap? predmap) xset)))
 
-(comment
-  (where {:config :a} data-1)
-  (where {:run #(< % 1)} data-1))
+;; e.g.
+;; (where {:config :a} data-1)
+;; (where {:run #(< % 1)} data-1)
+;; (where {:config :a :run #(< % 1)} data-1)
+;; (into #{}
+;;       (comp
+;;        (where {:config :b})
+;;        (where {:run #(< % 1)}))
+;;       data-1)
 
 
-(project data-1 [:config :run :tp])
 
-;; operations on tuples shouldn't remove information from them
-(defn compute-stddev [tuple] (assoc tuple :stddev (rand)))
+;; we want to provide ways to non-destructively derive information
+;; from tuples, using regular, "destructive" functions
 
-;; this way we can infer new facts non-destructively
+(defn derive
+  "Maps a tuple operation over the relation, associng the result as a new attribute."
+  ([dest-attr f]
+   (map (fn [tuple] (assoc tuple dest-attr (apply f [tuple])))))
+  ([dest-attr f xrel & args]
+   (->> xrel
+        (map (fn [tuple] (assoc tuple dest-attr (apply f tuple args))))
+        (into #{}))))
 
-(def data-2 (map compute-stddev data-1))
+;; e.g.
+;; (derive :foo (fn [_] (rand-int 100)) data-1)
+;; (derive :foo update data-1 :run inc)
+;; (into #{}
+;;       (comp
+;;        (where {:config :a})
+;;        (derive :hash hash))
+;;       data-1)
 
-(project data-2 [:tp :stddev])
+(defn derive-k
+  "Corresponds to SELECT F(key, key2, ...)"
+  ([dest-attr f ks]
+   (map (fn [tuple]
+          (let [param-fn (apply juxt ks)
+       ; @TODO combine juxt with flatten? then a single key-fn may return more than one paramater
+                params   (param-fn tuple)]
+            (assoc tuple dest-attr (apply f params))))))
+  ([dest-attr f ks xrel]
+   (into #{} (derive-k dest-attr f ks) xrel)))
+
+;; e.g.
+;; (derive-k :combined-name str [:config :run] data-1)
+;; (derive-k :tp2 #(* % %) [:tp] data-1)
+;; (into #{}
+;;       (comp
+;;        (where {:config :a})
+;;        (derive :hash hash)
+;;        (derive-k :tp2 #(* % %) [:tp]))
+;;       data-1)
+
 
 
 ;; we must also provide a way to lift data into a relation
 ;; the goal of this is to put keywords front and center
 ;; use join additionally, whenever a single relation's paths have diverged
-
-(defn derive
-  "Maps a tuple operation over the relation, associng the result as a new attribute."
-  [xrel dest-attr f & args]
-  (->> xrel
-       (map #(assoc % dest-attr (apply f % args)))
-       (into #{})))
-
-(defn derive2
-  "Maps a function which is unaware of tuples over a relation, associng
-   the result as a new attribute."
-  [xrel dest-attr f & ks]
-  (->> xrel
-       (map #(assoc % dest-attr (apply f ((apply juxt ks) %))))
-       (into #{})))
-
-;; one might even combine juxt with flatten, such that a single key-fn
-;; may return more than one paramater
-
-(comment
-  (-> data-1
-      (project [:config :run])
-      (derive :foo (fn [_] (rand-int 100)))
-      (join data-1))
-
-  (-> data-1
-      (project [:config :run])
-      (derive2 :combined-name str :config :run)
-      (join data-1)))
-
 
 (defn relate [& pairs]
   (assert (even? (count pairs)) "relate requires an even number of arguments")
@@ -109,18 +121,21 @@
        (map (fn [[k vs]] (map #(hash-map k %) vs)))
        (apply map merge)))
 
-(comment
-  (relate :k [:a :b "c"])
-  (relate :idx (range 10) :y (repeatedly 10 rand)))
+;; e.g.
+;; (relate :k [:a :b "c"])
+;; (relate :idx (range 10) :y (repeatedly 10 rand))
 
 
-;; decouple computation from tuple structure
+
+;; EXAMPLES
+
+;; decouple ation from tuple structure
 (let [data (relate :t (range 100) :n (repeatedly 100 #(rand-int 1000)) :y (repeatedly 100 #(rand-int 100)))]
   (let [total (apply + (map :n data))]
     (assert
      (= (into #{} (map #(assoc % :weight (/ (:n %) total)) data))
-        (derive data :weight #(/ (:n %) total))
-        (derive2 data :weight / :n (constantly total))))))
+        (derive :weight #(/ (:n %) total) data)
+        (derive-k :weight / [:n (constantly total)] data)))))
 
 ;; a cleaner zipmap
 (let [urls ["test.wav" "bla.mp3" "skrra.wav" "weeee.ogg"]
@@ -147,6 +162,6 @@
   (map #(assoc % :url (get-url %)) playables)
   
   ;; relational approach, w and w/o tuple-aware function
-  (derive playables :url get-url)
-  (derive2 playables :url get-path :name))
+  (derive :url get-url playables)
+  (derive-k :url get-path [:name] playables))
 
