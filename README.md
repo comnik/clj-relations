@@ -1,14 +1,15 @@
-# relational-exploration
+# Relational Helpers for Clojure
 
-A Clojure library designed to ... well, that part is up to you.
+Rationale and examples:
+https://www.nikolasgoebel.com/2018/01/18/relational-helpers.html
 
 ## Usage
 
-FIXME
+See tests for now.
 
 ## License
 
-Copyright © 2017 FIXME
+Copyright © 2019 Nikolas Göbel
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
