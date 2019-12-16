@@ -1,4 +1,4 @@
-(ns relational-exploration.core
+(ns relation-utils.core
   "As Clojure programmers, transforming collections of maps is
   our bread and butter. clojure.set encourages us to treat such
   collections as relations. Plenty of benefits await:

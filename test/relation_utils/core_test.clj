@@ -1,8 +1,8 @@
-(ns relational-exploration.core-test
+(ns relation-utils.core-test
   (:refer-clojure :exclude [derive])
   (:require [clojure.test :refer :all]
             [clojure.spec.alpha :as s]
-            [relational-exploration.core :refer :all]))
+            [relation-utils.core :refer :all]))
 
 (deftest test-where
   (let [data #{{:throughput 100 :run 0 :config :a}
