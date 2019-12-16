@@ -62,14 +62,18 @@
        (map (fn [[k vs]] (map #(hash-map k %) vs)))
        (apply map merge)))
 
-;; Threading becomes a mess, whenever the structure of the data
-;; changes during the transform. This is especially annoying with
-;; groupings. But we can do better in many cases, when we are not
-;; interested in a specific group, but rather in processing all of
-;; them.
-
 (defn reduce-by
-  "Like reduce, but allows for a separate accumulator per group."
+  "Like reduce, but allows for a separate accumulator per
+  group.
+
+  Threading becomes a mess, whenever the structure of the data changes
+  during the transform. This is especially annoying with
+  groupings. But we can do better in many cases, when we are not
+  interested in a specific group, but rather in processing all of
+  them.
+
+  In such a case we can reduce over the relation and keep one
+  accumulator per group."
   [key-fn xf init-fn xrel]
   (persistent!
    (reduce (fn [accs next]
@@ -80,11 +84,15 @@
            xrel)))
 
 (defn select-complement
-  "Returns a rel of the elements of xrel with keys in ks dissoced."
+  "Returns a rel of the elements of xrel with keys in ks
+  dissoced. Inverse of clojure.core/select-keys."
   [map keyseq]
   (apply dissoc map keyseq))
 
 (defn project-out
+  "Given a relation `xrel` with free variables V ∪ {k}, returns a map
+  from tuples projected to V∖{k} to bound values of k. Duplicates are
+  merged using the provided `fadd` function."
   ([k xrel] (project-out + k xrel))
   ([fadd k xrel]
    (persistent!
@@ -96,32 +104,36 @@
             (transient {})
             xrel))))
 
-(let [data #{{:tp 100 :run 0 :config :a}
-             {:tp 100 :run 1 :config :a}
-             {:tp 100 :run 2 :config :a}
-             {:tp 100 :run 0 :config :b}
-             {:tp 100 :run 1 :config :b}
-             {:tp 100 :run 2 :config :b}
-             {:tp 2000 :run 0 :config :a}}]
-  (time
-   (doseq [i (range 10000)]
-     (reduce-by #(select-keys % [:run :config])
-                (fn [sum t] (+ sum (:tp t)))
-                (constantly 0)
-                data)))
+(comment
+  
+  (let [data #{{:tp 100 :run 0 :config :a}
+               {:tp 100 :run 1 :config :a}
+               {:tp 100 :run 2 :config :a}
+               {:tp 100 :run 0 :config :b}
+               {:tp 100 :run 1 :config :b}
+               {:tp 100 :run 2 :config :b}
+               {:tp 2000 :run 0 :config :a}}]
+    (time
+     (doseq [i (range 10000)]
+       (reduce-by #(select-keys % [:run :config])
+                  (fn [sum t] (+ sum (:tp t)))
+                  (constantly 0)
+                  data)))
 
-  (time
-   (doseq [i (range 10000)]
-     (project-out + :tp data)))
+    (time
+     (doseq [i (range 10000)]
+       (project-out + :tp data)))
 
-  (time
-   (doseq [i (range 10000)]
-     (->> data
-          (group-by #(select-keys % [:run :config]))
-          ;; reduce-fn complexity is the same!
-          (map #(reduce (fn [sum t] (+ sum (:tp t)))
-                        0
-                        (second %)))))))
+    (time
+     (doseq [i (range 10000)]
+       (->> data             
+             (group-by #(select-keys % [:run :config]))
+             (reduce-kv
+              (fn [agg key tuples]
+                (assoc! agg key (apply + (map :tp tuples))))
+              (transient {}))
+             (persistent!)))))
+  )
 
 (comment
 

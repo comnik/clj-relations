@@ -105,6 +105,35 @@
         {:idx 1 :y 1}
         {:idx 2 :y 2}})))
 
+(deftest test-select-complement
+  (is
+   (= (select-complement {:a "a" :b "b" :c "c"} [:a :b])
+      {:c "c"})))
+
+(deftest test-project-out
+  (let [data #{{:tp 100 :run 0 :config :a}
+               {:tp 100 :run 1 :config :a}
+               {:tp 100 :run 2 :config :a}
+               {:tp 100 :run 0 :config :b}
+               {:tp 100 :run 1 :config :b}
+               {:tp 100 :run 2 :config :b}
+               {:tp 2000 :run 0 :config :a}}]
+    (is
+     (= (reduce-by #(select-keys % [:run :config])
+                   (fn [sum t] (+ sum (:tp t)))
+                   (constantly 0)
+                   data)
+
+        (project-out + :tp data)
+
+        (->> data             
+             (group-by #(select-keys % [:run :config]))
+             (reduce-kv
+              (fn [agg key tuples]
+                (assoc! agg key (apply + (map :tp tuples))))
+              (transient {}))
+             (persistent!))))))
+
 (deftest test-integration
   (testing "decouple action from tuple structure"
     (let [data (relate :t (range 100)
