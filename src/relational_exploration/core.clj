@@ -62,47 +62,94 @@
        (map (fn [[k vs]] (map #(hash-map k %) vs)))
        (apply map merge)))
 
-;; e.g.
-;; (relate :k [:a :b "c"])
-;; (relate :idx (range 10) :y (repeatedly 10 rand))
+;; Threading becomes a mess, whenever the structure of the data
+;; changes during the transform. This is especially annoying with
+;; groupings. But we can do better in many cases, when we are not
+;; interested in a specific group, but rather in processing all of
+;; them.
 
+(defn reduce-by
+  "Like reduce, but allows for a separate accumulator per group."
+  [key-fn xf init-fn xrel]
+  (persistent!
+   (reduce (fn [accs next]
+             (let [key (key-fn next)
+                   acc (or (get accs key) (init-fn key))]
+               (assoc! accs key (xf acc next))))
+           (transient {})
+           xrel)))
 
+(defn select-complement
+  "Returns a rel of the elements of xrel with keys in ks dissoced."
+  [map keyseq]
+  (apply dissoc map keyseq))
 
-;; EXAMPLES
+(defn project-out
+  ([k xrel] (project-out + k xrel))
+  ([fadd k xrel]
+   (persistent!
+    (reduce (fn [accs next]
+              (let [key (select-complement next [k])
+                    val (get next k)
+                    acc (or (get accs key) (fadd))]
+                (assoc! accs key (fadd acc val))))
+            (transient {})
+            xrel))))
 
-;; decouple ation from tuple structure
-(let [data (relate :t (range 100) :n (repeatedly 100 #(rand-int 1000)) :y (repeatedly 100 #(rand-int 100)))]
-  (let [total (apply + (map :n data))]
-    (assert
-     (= (into #{} (map #(assoc % :weight (/ (:n %) total)) data))
-        (derive :weight #(/ (:n %) total) data)
-        (derive-k :weight / [:n (constantly total)] data)))))
+(let [data #{{:tp 100 :run 0 :config :a}
+             {:tp 100 :run 1 :config :a}
+             {:tp 100 :run 2 :config :a}
+             {:tp 100 :run 0 :config :b}
+             {:tp 100 :run 1 :config :b}
+             {:tp 100 :run 2 :config :b}
+             {:tp 2000 :run 0 :config :a}}]
+  (time
+   (doseq [i (range 10000)]
+     (reduce-by #(select-keys % [:run :config])
+                (fn [sum t] (+ sum (:tp t)))
+                (constantly 0)
+                data)))
 
-;; a cleaner zipmap
-(let [urls ["test.wav" "bla.mp3" "skrra.wav" "weeee.ogg"]
-      ids  (range)]
-  ;; traditional
-  (map vector ids urls)
-  ;; relational
-  (relate :id ids :url urls))
+  (time
+   (doseq [i (range 10000)]
+     (project-out + :tp data)))
 
-;; maintain provenance
-(let [get-url   (fn [playable] (str "/storage/" (:name playable) ".mp3"))
-      get-path  (fn [name] (str "/storage/" name ".mp3"))
-      playables (relate :name ["name-a" "name-b" "name-c"])]
+  (time
+   (doseq [i (range 10000)]
+     (->> data
+          (group-by #(select-keys % [:run :config]))
+          ;; reduce-fn complexity is the same!
+          (map #(reduce (fn [sum t] (+ sum (:tp t)))
+                        0
+                        (second %)))))))
 
-  ;; usual approach, relying on implicit order
-  (let [urls (map get-url playables)]
-    (for [[playable url] (map vector playables urls)]
-      [playable url]))
+(comment
 
-  ;; usual approach, with non-tuple-aware function
-  (let [urls (map (comp get-url :name) playables)]) ;...
-
-  ;; traditional approach w/o destroying information
-  (map #(assoc % :url (get-url %)) playables)
+  ;; a cleaner zipmap
+  (let [urls ["test.wav" "bla.mp3" "skrra.wav" "weeee.ogg"]
+          ids  (range)]
+      ;; traditional
+      (map vector ids urls)
+      ;; relational
+      (relate :id ids :url urls))
   
-  ;; relational approach, w and w/o tuple-aware function
-  (derive :url get-url playables)
-  (derive-k :url get-path [:name] playables))
+  ;; maintain provenance
+  (let [get-url   (fn [playable] (str "/storage/" (:name playable) ".mp3"))
+        get-path  (fn [name] (str "/storage/" name ".mp3"))
+        playables (relate :name ["name-a" "name-b" "name-c"])]
 
+    ;; usual approach, relying on implicit order
+    (let [urls (map get-url playables)]
+      (for [[playable url] (map vector playables urls)]
+        [playable url]))
+
+    ;; usual approach, with non-tuple-aware function
+    (let [urls (map (comp get-url :name) playables)]) ;...
+
+    ;; traditional approach w/o destroying information
+    (map #(assoc % :url (get-url %)) playables)
+    
+    ;; relational approach, w and w/o tuple-aware function
+    (derive :url get-url playables)
+    (derive-k :url get-path [:name] playables))
+  )

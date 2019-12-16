@@ -104,3 +104,14 @@
       #{{:idx 0 :y 0}
         {:idx 1 :y 1}
         {:idx 2 :y 2}})))
+
+(deftest test-integration
+  (testing "decouple action from tuple structure"
+    (let [data (relate :t (range 100)
+                       :n (repeatedly 100 #(rand-int 1000))
+                       :y (repeatedly 100 #(rand-int 100)))]
+      (let [total (apply + (map :n data))]
+        (is
+         (= (into #{} (map #(assoc % :weight (/ (:n %) total)) data))
+            (derive :weight #(/ (:n %) total) data)
+            (derive-k :weight / [:n (constantly total)] data)))))))
